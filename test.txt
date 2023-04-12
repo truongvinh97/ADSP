@@ -1,0 +1,168 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <wiringPi.h>
+#include <pthread.h>
+#include <unistd.h>
+
+#define BUTTON_PIN 4
+#define SENSOR_PIN 2
+#define GREEN_LED  3
+#define RED_LED 5
+#define DOOR_OPEN_PIN 6
+#define DOOR_OPEN_TIME 10000
+#define BUTTON_THREAD_PRIORITY 99
+#define SENSOR_THREAD_PRIORITY 80
+#define DOOR_THREAD_PRIORITY 70
+#define LED_THREAD_PRIORITY 60
+
+// Time intervals
+#define DOOR_OPEN_TIME 10000 // 10 seconds in milliseconds
+
+pthread_mutex_t lock;
+int door_status = 0; // 0: closed, 1: opening, 2: opened, 3: closing
+unsigned long door_open_time = 0;
+
+void* button_thread(void* arg);
+void* sensor_thread(void* arg);
+void* led_thread(void* arg);
+void* door_thread(void* arg);
+
+int main(int argc, char* argv[])
+{
+    if (wiringPiSetup() == -1) {
+        printf("wiringPiSetup() failed\n");
+        exit(1);
+    }
+
+    pinMode(BUTTON_PIN, INPUT);
+    pinMode(SENSOR_PIN, INPUT);
+    pinMode(GREEN_LED, OUTPUT);
+    pinMode(RED_LED, OUTPUT);
+    pinMode(DOOR_OPEN_PIN, OUTPUT);
+
+    pullUpDnControl(BUTTON_PIN, PUD_UP);
+
+    digitalWrite(GREEN_LED, LOW);
+    digitalWrite(RED_LED, LOW);
+    digitalWrite(DOOR_OPEN_PIN, LOW);
+
+    pthread_mutex_init(&lock, NULL);
+
+    pthread_t button_thread_id, sensor_thread_id, led_thread_id, door_thread_id;
+    pthread_create(&button_thread_id, NULL, button_thread, NULL);
+    pthread_create(&sensor_thread_id, NULL, sensor_thread, NULL);
+    pthread_create(&led_thread_id, NULL, led_thread, NULL);
+    pthread_create(&door_thread_id, NULL, door_thread, NULL);
+
+    struct sched_param params;
+    params.sched_priority = BUTTON_THREAD_PRIORITY;
+    pthread_setschedparam(button_thread_id, SCHED_FIFO, &params);
+    params.sched_priority = SENSOR_THREAD_PRIORITY;
+    pthread_setschedparam(sensor_thread_id, SCHED_FIFO, &params);
+    params.sched_priority = LED_THREAD_PRIORITY;
+    pthread_setschedparam(led_thread_id, SCHED_FIFO, &params);
+    params.sched_priority = DOOR_THREAD_PRIORITY;
+    pthread_setschedparam(door_thread_id, SCHED_FIFO, &params);
+
+    pthread_join(button_thread_id, NULL);
+    pthread_join(sensor_thread_id, NULL);
+    pthread_join(led_thread_id, NULL);
+    pthread_join(door_thread_id, NULL);
+
+    pthread_mutex_destroy(&lock);
+    return 0;
+}
+
+void* button_thread(void* arg)
+{
+    while (1) {
+        if (digitalRead(BUTTON_PIN) == LOW) {
+            pthread_mutex_lock(&lock);
+            door_status = 1;
+            door_open_time = millis(); // lưu thời gian cửa được mở
+		if ((millis() - door_open_time) > DOOR_OPEN_TIME) { // kiểm tra xem đã hết thời gian mở cửa chưa
+                digitalWrite(DOOR_OPEN_PIN, LOW);
+                digitalWrite(GREEN_LED, LOW);
+            }
+            digitalWrite(DOOR_OPEN_PIN, HIGH);
+            digitalWrite(GREEN_LED, HIGH);
+            pthread_mutex_unlock(&lock);
+        }
+        usleep(30000);
+    }
+}
+
+void* sensor_thread(void* arg)
+{
+    while (1) {
+        if (digitalRead(SENSOR_PIN) == HIGH) {
+            pthread_mutex_lock(&lock);
+            digitalWrite(GREEN_LED, LOW);
+            digitalWrite(RED_LED, HIGH);
+            pthread_mutex_unlock(&lock);
+        }
+        usleep(10000);
+    }
+}
+
+// LED thread function
+void* led_thread(void* arg)
+{
+	while (1)
+	{
+		pthread_mutex_lock(&lock);
+		if (door_status == 0 || door_status == 3) // door closed or closing
+	{
+		digitalWrite(GREEN_LED, LOW);
+		digitalWrite(RED_LED, LOW);
+	}
+		pthread_mutex_unlock(&lock);
+		usleep(10000); // 10ms delay
+	}
+}
+
+void* door_thread(void* arg)
+{
+    while (1)
+    {
+        pthread_mutex_lock(&lock);
+        if (door_status == 1) // opening
+        {
+            digitalWrite(DOOR_OPEN_PIN, HIGH);
+            if ((millis() - door_open_time) > DOOR_OPEN_TIME) { // kiểm tra xem đã hết thời gian mở cửa chưa
+                door_status = 2; // set door status to opened
+            }
+        }
+        else if (door_status == 3) // closing
+        {
+		digitalWrite(DOOR_OPEN_PIN, HIGH);
+		digitalWrite(GREEN_LED, LOW);
+            usleep(DOOR_OPEN_TIME); // wait for door to fully close
+            door_status = 0; // set door status to closed
+        }
+
+	  else if (door_status == 4) // closed
+        {
+            digitalWrite(DOOR_OPEN_PIN, LOW);
+		digitalWrite(GREEN_LED, LOW);
+        }
+
+        if (door_status == 2) // opened
+        {
+            digitalWrite(GREEN_LED, LOW);
+            digitalWrite(RED_LED, LOW);
+		if ((millis() - door_open_time) > (DOOR_OPEN_TIME+3000)) { // kiểm tra xem đã hết thời gian mở cửa chưa
+                door_status = 3; // set door status to opened
+            }
+
+        }
+        else if (digitalRead(SENSOR_PIN) == HIGH) // check if PIR sensor is triggered
+        {
+            digitalWrite(GREEN_LED, LOW);
+            digitalWrite(RED_LED, HIGH);
+            door_status = 3; // set door status to closing
+        }
+        pthread_mutex_unlock(&lock);
+        usleep(10000); // 10ms delay
+    }
+}
