@@ -12,10 +12,14 @@ GPIO.setup(27, GPIO.OUT)
 
 # Set up Pyrebase config and database
 config = {
-    "apiKey": "YOUR_API_KEY",
-    "authDomain": "YOUR_PROJECT_ID.firebaseapp.com",
-    "databaseURL": "https://YOUR_PROJECT_ID.firebaseio.com",
-    "storageBucket": "YOUR_PROJECT_ID.appspot.com",
+  "apiKey": "AIzaSyDODWGTGafsxmxwWUPL-v8pOPLqIXmdQ40",
+  "authDomain": "rpi-control-4fc05.firebaseapp.com",
+  "databaseURL": "https://rpi-control-4fc05-default-rtdb.asia-southeast1.firebasedatabase.app",
+  "projectId": "rpi-control-4fc05",
+  "storageBucket": "rpi-control-4fc05.appspot.com",
+  "messagingSenderId": "692674149716",
+  "appId": "1:692674149716:web:e3f658d6654b4708f11cc1",
+  "measurementId": "G-0P769E9SZ3"
 }
 
 firebase = pyrebase.initialize_app(config)
